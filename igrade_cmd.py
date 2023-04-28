@@ -7,9 +7,10 @@ import fitz
 import pytextnow
 from PIL import Image
 from io import BytesIO
-from os import remove, makedirs, mkdir, fsencode, listdir
+from os import remove, makedirs, mkdir, fsencode, listdir, getcwd
 import docx2pdf
-from html2image import Html2Image
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 
 # init
 client = pytextnow.Client(username=credentials.get_username(), sid_cookie=credentials.get_sid(), csrf_cookie=credentials.get_csrf())
@@ -51,18 +52,37 @@ def ask(content, msg, timeout=60, default="", advanced=False):
     return default
 
 
+
+def screenshot(html_path, png_path='screenshot.png', wait=0.3):
+    # set up the Chrome options
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')  # launch in headless mode
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--window-size=720x1440')  # screen size of common phones
+
+    # create the webdriver with the options
+    driver = webdriver.Chrome(options=chrome_options)
+
+    # navigate to the path
+    driver.get(f'file://{str(getcwd())}/{html_path}')
+    time.sleep(wait)
+
+    # screenshot
+    driver.save_screenshot(png_path)
+
+    # close the browser
+    driver.quit()
+
+
 def send_html(content, msg):
 
-    # specify size. broken in chromium rn
-    size = (1280, 720)
-    hti = Html2Image(size=size)
-    hti.size = size
 
     background_color = 'white'
 
     # define CSS styles
-    hti.screenshot(html_str=content, size=size, css_str=f'''
-    
+    with open('files/html_parsing/html_data.html', 'w') as f:
+        f.write(f'''
+    <style>
     body {{background: {background_color};}}
 
     html *
@@ -136,13 +156,16 @@ td:first-child {{
 
 td:last-child {{
   border-right: 1px solid #dddddd;
-}}
-    
-    ''')
+}}</style>
+    ''' + content)
+
+    # screenshot html file
+    screenshot('files/html_parsing/html_data.html', png_path='files/html_parsing/screenshot.png')
+    remove('files/html_parsing/html_data.html')
 
     # send html as png
-    msg.send_mms('screenshot.png')
-    remove('screenshot.png')
+    msg.send_mms('files/html_parsing/screenshot.png')
+    remove('files/html_parsing/screenshot.png')
 
 
 def convert_pdf(file_path, download_path):
@@ -184,8 +207,8 @@ def convert_docx(input_file, output_file):
 
 
 def start(msg):
-
-
+    user_response = ask('Would you like to get upcoming assignments or problematic assignments? Respond with 1 or 2.',
+                        msg, default='2')
     msg.send_sms('Fetching grades. This may take a while...')
     print('Fetching Grades...')
 
@@ -193,18 +216,8 @@ def start(msg):
     igrade_client = igrade_lib.Client(credentials.get_igrade_username(), credentials.get_igrade_pwd())
 
 
-    # code
-
-    try:  # if dir exists
-        rmtree("files")
-    except FileNotFoundError:
-        pass
-
-    makedirs("files/download")
-    mkdir("files/finish")
-
     # get assignments
-    user_response = ask('would you like to get upcoming assignments or problematic assignments? Respond with 1 or 2.', msg, default='2')
+
     if user_response == '2':
         title = "Problematic Assignments"
         assignments = igrade_client.get_problematic_assignments()
@@ -288,7 +301,7 @@ def start(msg):
         </tr>
         </tbody>"""
         i += 1
-        if i == 5:  # IF OVER 5 ASSIGNMENTS. change when lower size screenshot can be taken
+        if i == 12:  # IF OVER 5 ASSIGNMENTS. change when lower size screenshot can be taken
             add_end_tag = False
             html += '</table>'
             html += '\n<p><b><i><mark>Continued...</mark></i></b><p><hr>'
